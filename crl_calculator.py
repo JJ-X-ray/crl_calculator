@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import urllib.parse
 
 
 # =====================
@@ -73,21 +74,153 @@ def peak_transmission(N, mu, d_neck_um, ap):
         return np.exp(-N * mu * d_neck_um)
     return np.exp(-N * mu * d_neck_um) * (1 / (2 * ap)) * (1 - np.exp(-2 * ap))
 
+def calc_2R0_optical(R_um, W_um=1000, d_neck_um=30):
+    """Optical aperture 2×R₀ from geometry"""
+    return 2 * np.sqrt(R_um * (W_um - d_neck_um))
+
+def image_distance(f_um, L1_um):
+    """Image distance from thin lens equation: 1/L2 = 1/f - 1/L1"""
+    inv_L2 = 1/f_um - 1/L1_um
+    if inv_L2 <= 0:
+        return float('inf')  # Virtual image or at infinity
+    return 1 / inv_L2
+
+def calc_gain(Tp, aperture_2R0_um, Bh_um, Bv_um):
+    """Gain = Tp × (2R₀)² / (Bh × Bv)"""
+    if Bh_um <= 0 or Bv_um <= 0:
+        return 0
+    return Tp * (aperture_2R0_um ** 2) / (Bh_um * Bv_um)
 
 # =====================
 # STREAMLIT UI
 # =====================
 st.set_page_config(page_title="CRL Calculator", layout="centered")
-st.title("Diamond CRL Calculator")
+st.markdown("""
+<style>
+    /* Main title color */
+    h1 {
+        color: #9B0052 !important;
+    }
 
+    /* Sidebar background */
+    [data-testid="stSidebar"] {
+        background-color: #2E3458;
+    }
+
+    /* Main area background */
+    [data-testid="stMain"] {
+        background-color: #AEA3A2;
+    }
+
+    /* Primary button */
+    .stButton > button[kind="primary"] {
+        background-color: #9B0052;
+        border-color: #9B0052;
+    }
+    .stButton > button[kind="primary"]:hover {
+        background-color: #7a0041;
+        border-color: #7a0041;
+    }
+
+
+    /* Slider tooltip (floating value above thumb) */
+    [data-testid="stThumbValue"],
+    .stSlider div[data-testid="stThumbValue"],
+    [data-baseweb="slider"] [data-testid="stThumbValue"],
+    .stSlider span,
+    [data-baseweb="tooltip"] {
+        color: #FFFFFF !important;
+        background-color: transparent !important;
+    }
+    
+    /* Even more aggressive - target all text inside slider */
+    .stSlider * {
+        color: #FFFFFF !important;
+    }
+
+    /* Number inputs in main area - white bg, black text */
+    [data-testid="stMain"] .stNumberInput input {
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
+    }
+
+    /* Sidebar inputs - keep dark theme */
+    [data-testid="stSidebar"] .stNumberInput input {
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
+    }
+    
+    /* Quotation form text inputs - white bg, black text */
+    [data-testid="stSidebar"] .stTextInput input {
+        background-color: #FFFFFF !important;
+        color: #000000 !important;
+    }
+    
+    /* Info box styling */
+    .stAlert [data-testid="stAlertContentInfo"] {
+        color: #9B0052 !important;
+    }
+    [data-testid="stAlert"] {
+        background-color: rgba(155, 0, 82, 0.1) !important;
+        border-color: #9B0052 !important;
+    }
+    .stAlert svg {
+        fill: #9B0052 !important;
+    }
+    
+    /* All text white */
+    .stMarkdown, .stText, label {
+        color: #FFFFFF !important;
+    }
+</style>
+""", unsafe_allow_html=True)
+st.title("Diamond CRL Calculator")
 # Load data
 lenses = load_lenses()
 optical = load_optical_constants()
 
-# Sidebar inputs
-st.sidebar.header("Parameters")
-energy_keV = st.sidebar.slider("Energy (keV)", 5.0, 30.0, 12.0, 0.1)
+# =====================
+# SESSION STATE INIT
+# =====================
+if "energy" not in st.session_state:
+    st.session_state.energy = 12.0
+
+def sync_slider():
+    st.session_state.energy = st.session_state.e_slider
+
+def sync_input():
+    # Clamp to valid range
+    val = st.session_state.e_input
+    st.session_state.energy = max(5.0, min(30.0, val))
+
+# =====================
+# SIDEBAR INPUTS
+# =====================
+st.sidebar.header("Beam Parameters")
+
+# Energy: slider + number input
+st.sidebar.write("**Energy (keV)**")
+col1, col2 = st.sidebar.columns([3, 1])
+with col1:
+    st.slider("Energy", 5.0, 30.0, st.session_state.energy, 0.1,
+              key="e_slider", on_change=sync_slider, label_visibility="collapsed")
+with col2:
+    st.number_input("keV", 5.0, 30.0, st.session_state.energy, 0.1,
+                    key="e_input", on_change=sync_input, label_visibility="collapsed")
+
+energy_keV = st.session_state.energy
 energy_eV = energy_keV * 1000
+
+# Source size
+st.sidebar.write("**Source size (σ, µm)**")
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    Sh = st.number_input("Horizontal", 1.0, 500.0, 150.0, 10.0, key="Sh")
+with col2:
+    Sv = st.number_input("Vertical", 1.0, 500.0, 150.0, 10.0, key="Sv")
+
+# Distance
+L1 = st.sidebar.number_input("Distance source → lens (m)", 1.0, 200.0, 40.0, 1.0, key="L1")
 
 # Get optical constants
 delta, beta = get_delta_beta(energy_eV, optical)
@@ -102,13 +235,19 @@ selected = {}
 cols = st.columns(2)
 for i, (_, lens) in enumerate(lenses.iterrows()):
     with cols[i % 2]:
+        st.markdown(
+            f"<span style='font-size:1.1em; font-weight:bold; color:#000000;'>{lens['Lens']}</span> "
+            f"<span style='color:#000000;'>(R={lens['Radius']}µm, Aperture={int(lens['Aperture'])}µm)</span>",
+            unsafe_allow_html=True
+        )
         n = st.number_input(
-            f"{lens['Lens']} (R={lens['Radius']}µm)",
-            min_value=0, max_value=50, value=0, key=lens['Lens']
+            f"{lens['Lens']}",
+            min_value=0, max_value=50, value=0,
+            key=lens['Lens'],
+            label_visibility="collapsed"
         )
         if n > 0:
             selected[lens['Lens']] = {"n": n, **lens}
-
 # Calculate
 if selected:
     st.header("Results")
@@ -131,15 +270,111 @@ if selected:
     min_R0 = min(s["R0"] for s in selected.values())
     min_R = min(s["Radius"] for s in selected.values())
 
+    # Image distance (L2)
+    L1_um = L1 * 1e6  # convert m to µm
+    L2_um = image_distance(f_total_um, L1_um)
+    L2_m = L2_um * 1e-6
+
+    # Image size
+    Bh = Sh * L2_um / L1_um  # µm
+    Bv = Sv * L2_um / L1_um  # µm
+
+    # Optical aperture (use smallest R in stack)
+    aperture_2R0 = calc_2R0_optical(min_R, W_um=1000, d_neck_um=30)
+
+
+
     a = lens_parameter_a(mu, total_N, min_R, delta, wavelength_A)
-    ap = aperture_parameter(a, min_R0, min_R)
+    ap = aperture_parameter(a, aperture_2R0, min_R)
     Tp = peak_transmission(total_N, mu, 30, ap)
-    Deff = effective_aperture(min_R0, ap)
+    Deff = effective_aperture(aperture_2R0, ap)
+    # Gain
+    G = calc_gain(Tp, aperture_2R0, Bh, Bv)
+
+    # Display
+
 
     col1, col2 = st.columns(2)
     col1.metric("Focal length", f"{f_total_m:.3f} m")
     col1.metric("Total lenses N", total_N)
     col2.metric("Peak transmission", f"{Tp * 100:.1f}%")
     col2.metric("Effective aperture", f"{Deff:.0f} µm")
+    col1.metric("Gain", f"{G:.1f}")
 else:
     st.info("Select at least one lens above.")
+
+import urllib.parse
+
+# =====================
+# QUOTATION REQUEST
+# =====================
+st.sidebar.markdown("---")
+st.sidebar.header("Request Quotation")
+
+quote_name = st.sidebar.text_input("Your name", key="quote_name")
+quote_institution = st.sidebar.text_input("Institution", key="quote_institution")
+quote_email = st.sidebar.text_input("Your email", key="quote_email")
+
+# Check if lenses are selected (assumes 'selected' dict exists from your lens selection code)
+has_lenses = 'selected' in dir() and len(selected) > 0
+
+if st.sidebar.button("Prepare Quotation Email", type="primary"):
+    # Validation
+    if not quote_name:
+        st.sidebar.error("Please enter your name.")
+    elif not quote_email:
+        st.sidebar.error("Please enter your email.")
+    elif not has_lenses:
+        st.sidebar.error("Please select at least one lens.")
+    else:
+        # Build lens summary
+        lens_lines = []
+        for s in selected.values():
+            lens_lines.append(f"  - {s['Lens']} (R={s['Radius']}µm): {s['n']} pcs")
+        lens_list = "\n".join(lens_lines)
+
+        # Build results summary (use variables from your calculation section)
+        subject = f"Diamond CRL Quotation Request - {quote_name}"
+        body = f"""Dear JJ X-Ray team,
+
+I would like to request a quotation for the following diamond CRL lenses:
+
+{lens_list}
+
+Application parameters:
+  - Energy: {energy_keV} keV
+  - Source size: {Sh} × {Sv} µm (H × V)
+  - Distance source to lens: {L1} m
+
+Calculated results:
+  - Total lenses: {total_N}
+  - Focal length: {f_total_m:.3f} m
+  - Peak transmission: {Tp * 100:.1f}%
+  - Effective aperture: {Deff:.0f} µm
+
+Contact information:
+  - Name: {quote_name}
+  - Institution: {quote_institution}
+  - Email: {quote_email}
+
+Best regards,
+{quote_name}
+"""
+
+        # Create mailto link
+        mailto_link = (
+            f"mailto:info@jjxray.dk"
+            f"?cc=jm@jjxray.dk"
+            f"&subject={urllib.parse.quote(subject)}"
+            f"&body={urllib.parse.quote(body)}"
+        )
+
+        st.sidebar.success("Email prepared!")
+        st.sidebar.markdown(f"👉 **[Click here to open in your email client]({mailto_link})**")
+
+st.markdown("---")
+col1, col2, col3 = st.columns([1, 1, 1])
+with col1:
+    st.image("logo.png", width=300)
+with col3:
+    st.image("palm_logo.png", width=300)
