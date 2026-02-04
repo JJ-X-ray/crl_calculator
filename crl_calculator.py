@@ -235,6 +235,7 @@ optical = load_optical_constants()
 if "energy" not in st.session_state:
     st.session_state.energy = 12.0
 
+st.sidebar.header("Beam Parameters")
 st.sidebar.write("**Energy (keV)**")
 col1, col2 = st.sidebar.columns([3, 1])
 with col1:
@@ -322,16 +323,14 @@ if selected:
     Bv = Sv * L2_um / L1_um  # µm
 
     # Optical aperture (use smallest R in stack)
-    aperture_2R0 = calc_2R0_optical(min_R, W_um=1000, d_neck_um=30)
-
 
 
     a = lens_parameter_a(mu, total_N, min_R, delta, wavelength_A)
-    ap = aperture_parameter(a, aperture_2R0, min_R)
+    ap = aperture_parameter(a, min_R0, min_R)
     Tp = peak_transmission(total_N, mu, 30, ap)
-    Deff = effective_aperture(aperture_2R0, ap)
+    Deff = effective_aperture(min_R0, ap)
     # Gain
-    G = calc_gain(Tp, aperture_2R0, Bh, Bv)
+    G = calc_gain(Tp, min_R0, Bh, Bv)
 
     # Display
 
