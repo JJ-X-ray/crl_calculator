@@ -94,9 +94,29 @@ def calc_gain(Tp, aperture_2R0_um, Bh_um, Bv_um):
 # =====================
 # STREAMLIT UI
 # =====================
-st.set_page_config(page_title="CRL Calculator", layout="centered")
+st.set_page_config(
+    page_title="CRL Calculator",
+    layout="centered",
+    initial_sidebar_state="expanded"
+)
 st.markdown("""
 <style>
+    /* Import Google Fonts */
+    @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;600;700&family=Titillium+Web:wght@400;600&display=swap');    
+   
+    /* Apply fonts globally */
+    [data-testid="stMain"],
+    [data-testid="stSidebar"] {
+        font-family: 'Titillium Web', sans-serif !important;
+    }
+
+    /* Headings and titles */
+    h1, h2, h3, h4, h5, h6,
+    [data-testid="stMetricLabel"],
+    .stSidebar h1, .stSidebar h2, .stSidebar h3 {
+        font-family: 'IBM Plex Serif', serif !important;
+    }
+
     /* Main title color */
     h1 {
         color: #9B0052 !important;
@@ -107,9 +127,16 @@ st.markdown("""
         background-color: #2E3458;
     }
 
-    /* Main area background */
+    /* Main area - clean white background */
     [data-testid="stMain"] {
-        background-color: #AEA3A2;
+        background: linear-gradient(180deg, #FFFFFF 0%, #F5F3F2 100%);
+    }
+    
+    /* Keep taupe for Results section cards */
+    [data-testid="stMetric"] {
+        background-color: rgba(174, 163, 162, 0.15);
+        padding: 1rem;
+        border-radius: 8px;
     }
 
     /* Primary button */
@@ -168,10 +195,33 @@ st.markdown("""
         fill: #9B0052 !important;
     }
     
-    /* All text white */
-    .stMarkdown, .stText, label {
+    /* Main area - dark text for light background */
+    [data-testid="stMain"] h1,
+    [data-testid="stMain"] h2,
+    [data-testid="stMain"] h3,
+    [data-testid="stMain"] .stMarkdown,
+    [data-testid="stMain"] .stText,
+    [data-testid="stMain"] label,
+    [data-testid="stMain"] [data-testid="stMetricValue"],
+    [data-testid="stMain"] [data-testid="stMetricLabel"] {
+        color: #2E3458 !important;
+    }
+    
+    /* Keep main title magenta */
+    [data-testid="stMain"] h1 {
+        color: #9B0052 !important;
+    }
+    
+    /* Sidebar - white text */
+    [data-testid="stSidebar"] h1,
+    [data-testid="stSidebar"] h2,
+    [data-testid="stSidebar"] h3,
+    [data-testid="stSidebar"] .stMarkdown,
+    [data-testid="stSidebar"] .stText,
+    [data-testid="stSidebar"] label {
         color: #FFFFFF !important;
     }
+    
 </style>
 """, unsafe_allow_html=True)
 st.title("Diamond CRL Calculator")
@@ -185,28 +235,20 @@ optical = load_optical_constants()
 if "energy" not in st.session_state:
     st.session_state.energy = 12.0
 
-def sync_slider():
-    st.session_state.energy = st.session_state.e_slider
-
-def sync_input():
-    # Clamp to valid range
-    val = st.session_state.e_input
-    st.session_state.energy = max(5.0, min(30.0, val))
-
-# =====================
-# SIDEBAR INPUTS
-# =====================
-st.sidebar.header("Beam Parameters")
-
-# Energy: slider + number input
 st.sidebar.write("**Energy (keV)**")
 col1, col2 = st.sidebar.columns([3, 1])
 with col1:
-    st.slider("Energy", 5.0, 30.0, st.session_state.energy, 0.1,
-              key="e_slider", on_change=sync_slider, label_visibility="collapsed")
+    new_val = st.slider("Energy", 5.0, 30.0, st.session_state.energy, 0.1)
 with col2:
-    st.number_input("keV", 5.0, 30.0, st.session_state.energy, 0.1,
-                    key="e_input", on_change=sync_input, label_visibility="collapsed")
+    new_val2 = st.number_input("keV", 5.0, 30.0, st.session_state.energy, 0.1)
+
+# Whichever changed, use it
+if new_val != st.session_state.energy:
+    st.session_state.energy = new_val
+    st.rerun()
+if new_val2 != st.session_state.energy:
+    st.session_state.energy = new_val2
+    st.rerun()
 
 energy_keV = st.session_state.energy
 energy_eV = energy_keV * 1000
@@ -301,7 +343,21 @@ if selected:
     col2.metric("Effective aperture", f"{Deff:.0f} µm")
     col1.metric("Gain", f"{G:.1f}")
 else:
-    st.info("Select at least one lens above.")
+    # Subtle inline note for validation
+    st.markdown(
+        '<p style="color: #6F6764; font-style: italic; margin: 2rem 0;">'
+        '↑ Select at least one lens above to see results.</p>',
+        unsafe_allow_html=True
+    )
+    # More prominent CTA box for contact
+    st.markdown(
+        '<div style="background: rgba(155,0,82,0.08); border-left: 3px solid #9B0052; '
+        'padding: 1rem; margin-top: 1rem;">'
+        'Need a custom configuration? <a href="mailto:info@jjxray.dk?subject=Custom%20Diamond%20CRL%20Inquiry" '
+        'style="color: #9B0052; font-weight: 600;">Contact us</a> directly.'
+        '</div>',
+        unsafe_allow_html=True
+    )
 
 import urllib.parse
 
