@@ -336,28 +336,8 @@ tab1, tab2 = st.tabs(["Select Lenses", "Calculate Lenses"])
 
 with tab1:
     st.header("Select Lenses")
-    # Custom lens input (internal use)
-    with st.expander("➕ Add Custom Lens", expanded=False):
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            custom_R = st.number_input("Radius R (µm)", 10, 2000, 100, 10, key="custom_R")
-        with col2:
-            custom_aperture = st.number_input("Aperture (µm)", 50, 3000, 500, 50, key="custom_aperture")
-        with col3:
-            custom_n = st.number_input("Quantity", 0, 200, 0, key="custom_n")
 
     selected = {}
-    # Add custom lens to selection if quantity > 0
-    if custom_n > 0:
-        selected["Custom"] = {
-            "n": custom_n,
-            "Lens": "Custom",
-            "Radius": custom_R,
-            "Aperture": custom_aperture,
-            "R0": custom_aperture / 2,
-            "d_neck": 30
-        }
-
     cols = st.columns(2)
     for i, (_, lens) in enumerate(lenses.iterrows()):
         with cols[i % 2]:
@@ -451,32 +431,14 @@ with tab2:
     st.header("Calculate Number of Lenses")
     st.markdown("*Enter your desired focal length and select a lens type to calculate how many lenses you need.*")
 
-    # Toggle for custom lens
-    use_custom = st.checkbox("Use custom lens parameters", key="tab2_use_custom")
-
-    if use_custom:
-        col1, col2 = st.columns(2)
-        with col1:
-            custom_R_tab2 = st.number_input("Radius R (µm)", 10, 2000, 100, 10, key="custom_R_tab2")
-        with col2:
-            custom_aperture_tab2 = st.number_input("Aperture (µm)", 50, 3000, 500, 50, key="custom_aperture_tab2")
-
-        selected_lens = {
-            'Lens': 'Custom',
-            'Radius': custom_R_tab2,
-            'Aperture': custom_aperture_tab2,
-            'R0': custom_aperture_tab2 / 2,
-            'd_neck': 30
-        }
-    else:
-        # Lens type selection
-        lens_options = {row['Lens']: row for _, row in lenses.iterrows()}
-        selected_lens_name = st.selectbox(
-            "Lens type",
-            options=list(lens_options.keys()),
-            format_func=lambda x: f"{x} (R={lens_options[x]['Radius']}µm, Aperture={int(lens_options[x]['Aperture'])}µm)"
-        )
-        selected_lens = lens_options[selected_lens_name]
+    # Lens type selection
+    lens_options = {row['Lens']: row for _, row in lenses.iterrows()}
+    selected_lens_name = st.selectbox(
+        "Lens type",
+        options=list(lens_options.keys()),
+        format_func=lambda x: f"{x} (R={lens_options[x]['Radius']}µm, Aperture={int(lens_options[x]['Aperture'])}µm)"
+    )
+    selected_lens = lens_options[selected_lens_name]
 
     # Target focal length input
     target_f_m = st.number_input("Desired focal length (m)", 0.01, 100.0, 1.0, 0.01, key="target_f")
