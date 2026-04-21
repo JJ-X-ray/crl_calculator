@@ -41,19 +41,14 @@ def wavelength_angstrom(energy_eV):
 
 def absorption_coeff(beta, wavelength_A):
     """Linear absorption coefficient µ in 1/µm"""
-    wavelength_um = wavelength_A * 1e-4
+    wavelength_um = wavelength_A * 1e-4   # 1 Å = 1e-4 µm
     return 4 * np.pi * beta / wavelength_um
+
 
 
 def focal_length(R_um, N, delta):
     """Focal length in µm"""
     return R_um / (2 * N * delta)
-
-
-def lens_parameter_a(mu, N, R_um, delta, wavelength_A, sigma_um=0.1):
-    """Lens parameter a (accounts for absorption + scattering)"""
-    scatter_term = 2 * N * (2 * np.pi * delta / wavelength_A) ** 2 * sigma_um ** 2
-    return mu * N * R_um + scatter_term
 
 
 def aperture_parameter(a, R0_um, R_um):
@@ -63,15 +58,15 @@ def aperture_parameter(a, R0_um, R_um):
 
 def effective_aperture(R0_um, ap):
     """Effective aperture diameter Deff in µm"""
-    # if ap < 1e-10:
-    #    return 2 * R0_um
+    if ap < 1e-10:
+       return 2 * R0_um
     return 2 * R0_um * np.sqrt((1 - np.exp(-ap)) / ap)
 
 
-def peak_transmission(N, mu, d_neck_um, ap):
+def effective_aperture_transmission(N, mu, d_neck_um, ap):
     """Peak transmission Tp"""
-    # if ap < 1e-10:
-    #    return np.exp(-N * mu * d_neck_um)
+    if ap < 1e-10:
+       return np.exp(-N * mu * d_neck_um)
     return np.exp(-N * mu * d_neck_um) * (1 / (2 * ap)) * (1 - np.exp(-2 * ap))
 
 
@@ -101,7 +96,8 @@ def calc_N_from_focal(R_um, f_um, delta):
 
 
 def lens_parameter_a(mu, N, R_um, delta, wavelength_A, sigma_um=0.1):
-    scatter_term = 2 * N * (2 * np.pi * delta / wavelength_A) ** 2 * sigma_um ** 2
+    wavelength_um = wavelength_A * 1e-4
+    scatter_term = 2 * N * (2 * np.pi * delta / wavelength_um) ** 2 * sigma_um ** 2
     return mu * N * R_um + scatter_term
 
 
@@ -333,13 +329,13 @@ st.sidebar.markdown(f"**δ** = {delta:.3e}  \n**β** = {beta:.3e}  \n**µ** = {m
 # TABS
 # =========================================================================================================
 
-tab1, tab2 = st.tabs(["Select Lenses", "Calculate Lenses"])
+tab1, tab2 = st.tabs(["Calculate Lenses", "Select Lenses"])
 
 # =========================================================================================================
 # TAB 1: SELECT LENSES (FORWARD CALCULATOR)
 # =========================================================================================================
 
-with tab1:
+with tab2:
     st.header("Select Lenses")
     # Custom lens input (internal use)
     with st.expander("➕ Add Custom Lens", expanded=False):
@@ -364,7 +360,8 @@ with tab1:
         }
 
     cols = st.columns(2)
-    for i, (_, lens) in enumerate(lenses.iterrows()):
+    for i, (_,
+            lens) in enumerate(lenses.iterrows()):
         with cols[i % 2]:
             st.markdown(
                 f"<span style='font-size:1.1em; font-weight:bold; color:#6F6764;'>{lens['Lens']}</span> "
@@ -411,22 +408,29 @@ with tab1:
         Bv = Sv * L2_um / L1_um  # µm
 
         # Optical aperture (use smallest R in stack)
-
+        # TODO: add surface roughness for (un-)polished: 0.25 um / 0.05 um; add check mark
         a = lens_parameter_a(mu, total_N, min_R, delta, wavelength_A)
         ap = aperture_parameter(a, min_R0, min_R)
-        Tp = peak_transmission(total_N, mu, 30, ap)
         Deff = effective_aperture(min_R0, ap)
-        # Gain
-        G = calc_gain(Tp, min_R0, Bh, Bv)
+        Tp_Deff = effective_aperture_transmission(total_N, mu, 30, ap)
+
+        # -------------------------------------------------
+        # debugging
+        # -------------------------------------------------
+        #Tp_direct = effective_aperture_transmission(total_N, mu, 30, 1e-11) #compare with LBL data
+        #print(f"mu={mu}, total_N={total_N}, min_R={min_R}, delta={delta}, wavelength_A={wavelength_A}, beta={beta}")
+        #print(f"a={a}, ap={ap}, Deff={Deff}, Tp_Deff={Tp_Deff}, Tp_direct={Tp_direct}")        # Gain
+
+        G = calc_gain(Tp_Deff, min_R0, Bh, Bv)
 
         # Display
 
         col1, col2 = st.columns(2)
         col1.metric("Focal length", f"{f_total_m:.3f} m")
         col1.metric("Total lenses N", total_N)
-        col2.metric("Peak transmission", f"{Tp * 100:.1f}%")
+        col2.metric("Peak transmission", f"{Tp_Deff * 100:.1f}%")
         col2.metric("Effective aperture", f"{Deff:.0f} µm")
-        col1.metric("Gain", f"{G:.1f}")
+        #col1.metric("Gain", f"{G:.1f}")
     else:
         # Subtle inline note for validation
         st.markdown(
@@ -450,7 +454,7 @@ with tab1:
 # TAB 2: CALCULATE LENSES (INVERSE CALCULATOR)
 # =========================================================================================================
 
-with tab2:
+with tab1:
     st.header("Calculate Number of Lenses")
     st.markdown("*Enter your desired focal length and select a lens type to calculate how many lenses you need.*")
 
@@ -500,7 +504,7 @@ with tab2:
 
     a = lens_parameter_a(mu, N_rounded, R_um, delta, wavelength_A)
     ap = aperture_parameter(a, R0_um, R_um)
-    Tp = peak_transmission(N_rounded, mu, 30, ap)
+    Tp_Deff = effective_aperture_transmission(N_rounded, mu, 30, ap)
     Deff = effective_aperture(R0_um, ap)
 
     # Image distance and gain
@@ -508,16 +512,16 @@ with tab2:
     L2_um = image_distance(f_actual_um, L1_um)
     Bh = Sh * L2_um / L1_um
     Bv = Sv * L2_um / L1_um
-    G = calc_gain(Tp, R0_um, Bh, Bv)
+    G = calc_gain(Tp_Deff, R0_um, Bh, Bv)
 
     st.header("Results")
 
     col1, col2 = st.columns(2)
     col1.metric("Number of lenses (N)", N_rounded)
     col1.metric("Actual focal length", f"{f_actual_m:.3f} m")
-    col2.metric("Peak transmission", f"{Tp * 100:.1f}%")
+    col2.metric("Peak transmission", f"{Tp_Deff * 100:.1f}%")
     col2.metric("Effective aperture", f"{Deff:.0f} µm")
-    col1.metric("Gain", f"{G:.1f}")
+    #col1.metric("Gain", f"{G:.1f}")
 
     # Show deviation from target
     deviation_pct = abs(f_actual_m - target_f_m) / target_f_m * 100
@@ -568,7 +572,7 @@ Application parameters:
 Calculated results:
   - Total lenses: {total_N}
   - Focal length: {f_total_m:.3f} m
-  - Peak transmission: {Tp * 100:.1f}%
+  - Peak transmission: {Tp_Deff * 100:.1f}%
   - Effective aperture: {Deff:.0f} µm
 
 Contact information:
