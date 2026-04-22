@@ -41,7 +41,7 @@ def wavelength_angstrom(energy_eV):
 
 def absorption_coeff(beta, wavelength_A):
     """Linear absorption coefficient µ in 1/µm"""
-    wavelength_um = wavelength_A * 1e-4
+    wavelength_um = wavelength_A * 1e-4  # 1 Å = 1e-4 µm
     return 4 * np.pi * beta / wavelength_um
 
 
@@ -63,27 +63,30 @@ def aperture_parameter(a, R0_um, R_um):
 
 def effective_aperture(R0_um, ap):
     """Effective aperture diameter Deff in µm"""
-    #if ap < 1e-10:
-    #    return 2 * R0_um
+    if ap < 1e-10:
+        return 2 * R0_um
     return 2 * R0_um * np.sqrt((1 - np.exp(-ap)) / ap)
 
 
-def peak_transmission(N, mu, d_neck_um, ap):
+def effective_aperture_transmission(N, mu, d_neck_um, ap):
     """Peak transmission Tp"""
-    #if ap < 1e-10:
-    #    return np.exp(-N * mu * d_neck_um)
+    if ap < 1e-10:
+        return np.exp(-N * mu * d_neck_um)
     return np.exp(-N * mu * d_neck_um) * (1 / (2 * ap)) * (1 - np.exp(-2 * ap))
+
 
 def calc_2R0_optical(R_um, W_um=1000, d_neck_um=30):
     """Optical aperture 2×R₀ from geometry"""
     return 2 * np.sqrt(R_um * (W_um - d_neck_um))
 
+
 def image_distance(f_um, L1_um):
     """Image distance from thin lens equation: 1/L2 = 1/f - 1/L1"""
-    inv_L2 = 1/f_um - 1/L1_um
+    inv_L2 = 1 / f_um - 1 / L1_um
     if inv_L2 <= 0:
         return float('inf')  # Virtual image or at infinity
     return 1 / inv_L2
+
 
 def calc_gain(Tp, aperture_2R0_um, Bh_um, Bv_um):
     """Gain = Tp × (2R₀)² / (Bh × Bv)"""
@@ -91,13 +94,17 @@ def calc_gain(Tp, aperture_2R0_um, Bh_um, Bv_um):
         return 0
     return Tp * (aperture_2R0_um ** 2) / (Bh_um * Bv_um)
 
+
 def calc_N_from_focal(R_um, f_um, delta):
     """Inverse: calculate N from desired focal length"""
-    return R_um / (2  *f_um*  delta)
+    return R_um / (2 * f_um * delta)
+
 
 def lens_parameter_a(mu, N, R_um, delta, wavelength_A, sigma_um=0.1):
-    scatter_term = 2  *N*  (2  *np.pi*  delta / wavelength_A)  **2 * sigma_um**  2
-    return mu  *N*  R_um + scatter_term
+    wavelength_um = wavelength_A * 1e-4
+    scatter_term = 2 * N * (2 * np.pi * delta / wavelength_um) ** 2 * sigma_um ** 2
+    return mu * N * R_um + scatter_term
+
 
 # =========================================================================================================
 # STREAMLIT UI
@@ -111,7 +118,7 @@ st.markdown("""
 <style>
     /* Import Google Fonts */
     @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:wght@400;600;700&family=Titillium+Web:wght@400;600&display=swap');    
-   
+
     /* Apply fonts globally */
     [data-testid="stMain"],
     [data-testid="stSidebar"] {
@@ -139,7 +146,7 @@ st.markdown("""
     [data-testid="stMain"] {
         background: linear-gradient(180deg, #FFFFFF 0%, #F5F3F2 100%);
     }
-    
+
     /* Keep taupe for Results section cards */
     [data-testid="stMetric"] {
         background-color: rgba(174, 163, 162, 0.15);
@@ -167,7 +174,7 @@ st.markdown("""
         color: #FFFFFF !important;
         background-color: transparent !important;
     }
-    
+
     /* Even more aggressive - target all text inside slider */
     .stSlider * {
         color: #FFFFFF !important;
@@ -184,13 +191,13 @@ st.markdown("""
         background-color: #FFFFFF !important;
         color: #6F6764 !important;
     }
-    
+
     /* Quotation form text inputs - white bg, black text */
     [data-testid="stSidebar"] .stTextInput input {
         background-color: #FFFFFF !important;
         color: #6F6764 !important;
     }
-    
+
     /* Info box styling */
     .stAlert [data-testid="stAlertContentInfo"] {
         color: #9B0052 !important;
@@ -202,7 +209,7 @@ st.markdown("""
     .stAlert svg {
         fill: #9B0052 !important;
     }
-    
+
     /* Main area - dark text for light background */
     [data-testid="stMain"] h1,
     [data-testid="stMain"] h2,
@@ -214,12 +221,12 @@ st.markdown("""
     [data-testid="stMain"] [data-testid="stMetricLabel"] {
         color: #074E6E !important;
     }
-    
+
     /* Keep main title magenta */
     [data-testid="stMain"] h1 {
         color: #9B0052 !important;
     }
-    
+
     /* Sidebar - white text */
     [data-testid="stSidebar"] h1,
     [data-testid="stSidebar"] h2,
@@ -229,39 +236,39 @@ st.markdown("""
     [data-testid="stSidebar"] label {
         color: #FFFFFF !important;
     }
-    
+
     /* Tab text - navy blue */
     [data-testid="stTabs"] button {
         color: #074E6E !important;
     }
-    
+
     /* Dropdown container and menu */
     [data-baseweb="popover"] {
         background-color: #FFFFFF !important;
     }
-    
+
     [data-baseweb="menu"] {
         background-color: #FFFFFF !important;
     }
-    
+
     /* Navy blue buttons */
     [data-testid="stSidebar"] .stButton > button {
         background-color: #074E6E !important;
         border-color: #074E6E !important;
         color: #FFFFFF !important;
     }
-    
+
     [data-testid="stSidebar"] .stButton > button:hover {
         background-color: #3d4570 !important;
         border-color: #3d4570 !important;
     }
-    
+
     /* Keep primary button magenta */
     [data-testid="stSidebar"] .stButton > button[kind="primary"] {
         background-color: #9B0052 !important;
         border-color: #9B0052 !important;
     }
-    
+
     [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
         background-color: #7a0041 !important;
         border-color: #7a0041 !important;
@@ -281,7 +288,6 @@ optical = load_optical_constants()
 # =========================================================================================================
 if "energy" not in st.session_state:
     st.session_state.energy = 12.0
-
 
 # =========================================================================================================
 # SIDEBAR: BEAM PARAMETERS
@@ -328,18 +334,19 @@ st.sidebar.markdown(f"**δ** = {delta:.3e}  \n**β** = {beta:.3e}  \n**µ** = {m
 # TABS
 # =========================================================================================================
 
-tab1, tab2 = st.tabs(["Select Lenses", "Calculate Lenses"])
+tab1, tab2 = st.tabs(["Calculate Lenses", "Select Lenses"])
 
 # =========================================================================================================
 # TAB 1: SELECT LENSES (FORWARD CALCULATOR)
 # =========================================================================================================
 
-with tab1:
+with tab2:
     st.header("Select Lenses")
 
     selected = {}
     cols = st.columns(2)
-    for i, (_, lens) in enumerate(lenses.iterrows()):
+    for i, (_,
+            lens) in enumerate(lenses.iterrows()):
         with cols[i % 2]:
             st.markdown(
                 f"<span style='font-size:1.1em; font-weight:bold; color:#6F6764;'>{lens['Lens']}</span> "
@@ -386,24 +393,29 @@ with tab1:
         Bv = Sv * L2_um / L1_um  # µm
 
         # Optical aperture (use smallest R in stack)
-
-
+        # TODO: add surface roughness for (un-)polished: 0.25 um / 0.05 um; add check mark
         a = lens_parameter_a(mu, total_N, min_R, delta, wavelength_A)
         ap = aperture_parameter(a, min_R0, min_R)
-        Tp = peak_transmission(total_N, mu, 30, ap)
         Deff = effective_aperture(min_R0, ap)
-        # Gain
-        G = calc_gain(Tp, min_R0, Bh, Bv)
+        Tp_Deff = effective_aperture_transmission(total_N, mu, 30, ap)
+
+        # -------------------------------------------------
+        # debugging
+        # -------------------------------------------------
+        # Tp_direct = effective_aperture_transmission(total_N, mu, 30, 1e-11) #compare with LBL data
+        # print(f"mu={mu}, total_N={total_N}, min_R={min_R}, delta={delta}, wavelength_A={wavelength_A}, beta={beta}")
+        # print(f"a={a}, ap={ap}, Deff={Deff}, Tp_Deff={Tp_Deff}, Tp_direct={Tp_direct}")        # Gain
+
+        G = calc_gain(Tp_Deff, min_R0, Bh, Bv)
 
         # Display
-
 
         col1, col2 = st.columns(2)
         col1.metric("Focal length", f"{f_total_m:.3f} m")
         col1.metric("Total lenses N", total_N)
-        col2.metric("Peak transmission", f"{Tp * 100:.1f}%")
+        col2.metric("Peak transmission", f"{Tp_Deff * 100:.1f}%")
         col2.metric("Effective aperture", f"{Deff:.0f} µm")
-        col1.metric("Gain", f"{G:.1f}")
+        # col1.metric("Gain", f"{G:.1f}")
     else:
         # Subtle inline note for validation
         st.markdown(
@@ -427,7 +439,7 @@ with tab1:
 # TAB 2: CALCULATE LENSES (INVERSE CALCULATOR)
 # =========================================================================================================
 
-with tab2:
+with tab1:
     st.header("Calculate Number of Lenses")
     st.markdown("*Enter your desired focal length and select a lens type to calculate how many lenses you need.*")
 
@@ -458,7 +470,7 @@ with tab2:
 
     a = lens_parameter_a(mu, N_rounded, R_um, delta, wavelength_A)
     ap = aperture_parameter(a, R0_um, R_um)
-    Tp = peak_transmission(N_rounded, mu, 30, ap)
+    Tp_Deff = effective_aperture_transmission(N_rounded, mu, 30, ap)
     Deff = effective_aperture(R0_um, ap)
 
     # Image distance and gain
@@ -466,16 +478,16 @@ with tab2:
     L2_um = image_distance(f_actual_um, L1_um)
     Bh = Sh * L2_um / L1_um
     Bv = Sv * L2_um / L1_um
-    G = calc_gain(Tp, R0_um, Bh, Bv)
+    G = calc_gain(Tp_Deff, R0_um, Bh, Bv)
 
     st.header("Results")
 
     col1, col2 = st.columns(2)
     col1.metric("Number of lenses (N)", N_rounded)
     col1.metric("Actual focal length", f"{f_actual_m:.3f} m")
-    col2.metric("Peak transmission", f"{Tp * 100:.1f}%")
+    col2.metric("Peak transmission", f"{Tp_Deff * 100:.1f}%")
     col2.metric("Effective aperture", f"{Deff:.0f} µm")
-    col1.metric("Gain", f"{G:.1f}")
+    # col1.metric("Gain", f"{G:.1f}")
 
     # Show deviation from target
     deviation_pct = abs(f_actual_m - target_f_m) / target_f_m * 100
@@ -526,7 +538,7 @@ Application parameters:
 Calculated results:
   - Total lenses: {total_N}
   - Focal length: {f_total_m:.3f} m
-  - Peak transmission: {Tp * 100:.1f}%
+  - Peak transmission: {Tp_Deff * 100:.1f}%
   - Effective aperture: {Deff:.0f} µm
 
 Contact information:
