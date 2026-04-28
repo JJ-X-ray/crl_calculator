@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import urllib.parse
+from scipy.special import erf
 
 
 # =========================================================================================================
@@ -38,23 +39,18 @@ def get_delta_beta(energy_eV, table):
 def wavelength_angstrom(energy_eV):
     return 12398.4 / energy_eV
 
-
 def absorption_coeff(beta, wavelength_A):
     """Linear absorption coefficient µ in 1/µm"""
     wavelength_um = wavelength_A * 1e-4   # 1 Å = 1e-4 µm
     return 4 * np.pi * beta / wavelength_um
 
-
-
 def focal_length(R_um, N, delta):
     """Focal length in µm"""
     return R_um / (2 * N * delta)
 
-
 def aperture_parameter(a, R0_um, R_um):
     """Standard aperture parameter ap"""
     return a * R0_um ** 2 / (2 * R_um ** 2)
-
 
 def effective_aperture(R0_um, ap):
     """Effective aperture diameter Deff in µm"""
@@ -62,13 +58,34 @@ def effective_aperture(R0_um, ap):
        return 2 * R0_um
     return 2 * R0_um * np.sqrt((1 - np.exp(-ap)) / ap)
 
-
-def effective_aperture_transmission(N, mu, d_neck_um, ap):
+def aperture_averaged_transmission(N, mu, d_neck_um, ap):
     """Peak transmission Tp"""
     if ap < 1e-10:
        return np.exp(-N * mu * d_neck_um)
     return np.exp(-N * mu * d_neck_um) * (1 / (2 * ap)) * (1 - np.exp(-2 * ap))
 
+def gaussian_beam_transmission(N, mu, d_neck_um, a, R_um, sigma_h_um, sigma_v_um):
+    """Beam-weighted transmission for an elliptical Gaussian beam.
+    sigma_h, sigma_v are the rms (1-sigma) beam sizes in um.
+    Exact when the beam is narrow compared to the geometric aperture R0."""
+    T_neck = np.exp(-N * mu * d_neck_um)
+    factor_h = 1.0 + 2.0 * a * sigma_h_um ** 2 / R_um **  2
+    factor_v = 1.0 + 2.0 * a * sigma_v_um ** 2 / R_um ** 2
+    return T_neck / np.sqrt(factor_h * factor_v)
+
+def tophat_beam_transmission(N, mu, d_neck_um, a, R_um, H_um, V_um, R0_um):
+    """Beam-weighted transmission for a uniform rectangular (slit-cut) beam.
+    H_um, V_um are full widths in um. Clamped to the geometric aperture 2*R0."""
+    T_neck = np.exp(-N * mu * d_neck_um)
+    H_eff = min(H_um, 2.0 * R0_um)
+    V_eff = min(V_um, 2.0 * R0_um)
+    u_h = H_eff * np.sqrt(a) / (2.0 * R_um)
+    u_v = V_eff * np.sqrt(a) / (2.0 * R_um)
+    def _F(u):
+        if u < 1e-6:
+            return 1.0 - u ** 2 / 3.0   # Taylor expansion for small u
+        return (np.sqrt(np.pi) / (2.0 * u)) * erf(u)
+    return T_neck * _F(u_h) * _F(u_v)
 
 def calc_2R0_optical(R_um, W_um=1000, d_neck_um=30):
     """Optical aperture 2×R₀ from geometry"""
@@ -100,6 +117,46 @@ def lens_parameter_a(mu, N, R_um, delta, wavelength_A, sigma_um=0.1):
     scatter_term = 2 * N * (2 * np.pi * delta / wavelength_um) ** 2 * sigma_um ** 2
     return mu * N * R_um + scatter_term
 
+def to_sigma(size_um, convention):
+    """Convert a user-supplied 'beam size' to the Gaussian rms sigma."""
+    if convention == "FWHM":
+        return size_um / 2.3548
+    if convention == "1-sigma (rms)":
+        return size_um
+    if convention == "2-sigma":
+        return size_um / 2.0
+    if convention == "1/e² full width":
+        return size_um / 4.0
+    raise ValueError(f"Not a Gaussian convention: {convention}")
+
+def effective_transmission(convention, N, mu, d_neck_um, a, R_um, R0_um,
+                           beam_h_um, beam_v_um):
+    if convention == "Slit full width (top-hat)":
+        return tophat_beam_transmission(
+            N, mu, d_neck_um, a, R_um, beam_h_um, beam_v_um, R0_um
+        )
+    elif convention in ("FWHM", "1-sigma (rms)", "2-sigma", "1/e² full width"):
+        sigma_h = to_sigma(beam_h_um, convention)
+        sigma_v = to_sigma(beam_v_um, convention)
+        return gaussian_beam_transmission(
+            N, mu, d_neck_um, a, R_um, sigma_h, sigma_v
+        )
+    else:  # "Overfilled" fallback
+        ap_geom = a * R0_um ** 2 / (2.0 * R_um ** 2)
+        return aperture_averaged_transmission(N, mu, d_neck_um, ap_geom)
+
+
+def beam_overfills_aperture(beam_h_um, beam_v_um, convention, R0_um):
+    """Return True when the beam footprint exceeds the geometric aperture 2*R0 in both axes."""
+    aperture = 2.0 * R0_um
+    if convention == "Slit full width (top-hat)":
+        return beam_h_um >= aperture and beam_v_um >= aperture
+    # Gaussian conventions: convert to FWHM for comparison
+    sigma_h = to_sigma(beam_h_um, convention)
+    sigma_v = to_sigma(beam_v_um, convention)
+    fwhm_h = 2.3548 * sigma_h
+    fwhm_v = 2.3548 * sigma_v
+    return fwhm_h >= aperture and fwhm_v >= aperture
 
 # =========================================================================================================
 # STREAMLIT UI
@@ -311,12 +368,36 @@ energy_eV = energy_keV * 1000
 st.sidebar.write("**Source size (σ, µm)**")
 col1, col2 = st.sidebar.columns(2)
 with col1:
-    Sh = st.number_input("Horizontal", 1.0, 500.0, 150.0, 10.0, key="Sh")
+    beam_h = st.number_input("Horizontal", 1.0, 5000.0, 150.0, 10.0, key="beam_h")
 with col2:
-    Sv = st.number_input("Vertical", 1.0, 500.0, 150.0, 10.0, key="Sv")
+    beam_v = st.number_input("Vertical", 1.0, 5000.0, 150.0, 10.0, key="beam_v")
+
+size_convention = st.sidebar.selectbox(
+    "Size definition",
+    ["FWHM", "Slit full width (top-hat)"],
+    index=0,
+    help=(
+        "How the beam size is defined. FWHM is the most common for beamline diagnostics. "
+        "1-sigma is standard in accelerator physics. Slit full width means hard-edged "
+        "rectangular beam clipped by upstream slits."
+    ),
+)
 
 # Distance
 L1 = st.sidebar.number_input("Distance source → lens (m)", 1.0, 200.0, 40.0, 1.0, key="L1")
+
+st.sidebar.write("**Source divergence (σ', µrad) — optional**")
+col1, col2 = st.sidebar.columns(2)
+with col1:
+    divh = st.number_input("Horizontal", 0.0, 500.0, 0.0, 1.0, key="divh")
+with col2:
+    divv = st.number_input("Vertical", 0.0, 500.0, 0.0, 1.0, key="divv")
+
+# When user hasn't entered a beam size, auto-estimate from source + divergence
+sigma_h_from_source = np.sqrt(beam_h**2 + (divh * 1e-6 * L1 * 1e6)**2)  # µm
+sigma_v_from_source = np.sqrt(beam_v**2 + (divv * 1e-6 * L1 * 1e6)**2)
+
+
 
 # Get optical constants
 delta, beta = get_delta_beta(energy_eV, optical)
@@ -404,32 +485,39 @@ with tab2:
         L2_m = L2_um * 1e-6
 
         # Image size
-        Bh = Sh * L2_um / L1_um  # µm
-        Bv = Sv * L2_um / L1_um  # µm
+        Bh = beam_h * L2_um / L1_um  # µm
+        Bv = beam_v * L2_um / L1_um  # µm
 
         # Optical aperture (use smallest R in stack)
         # TODO: add surface roughness for (un-)polished: 0.25 um / 0.05 um; add check mark
         a = lens_parameter_a(mu, total_N, min_R, delta, wavelength_A)
         ap = aperture_parameter(a, min_R0, min_R)
         Deff = effective_aperture(min_R0, ap)
-        Tp_Deff = effective_aperture_transmission(total_N, mu, 30, ap)
+        Tp_Deff = aperture_averaged_transmission(total_N, mu, 30, ap)
+        Tp_neck = aperture_averaged_transmission(total_N, mu, 30, 0)
 
-        # -------------------------------------------------
-        # debugging
-        # -------------------------------------------------
-        #Tp_direct = effective_aperture_transmission(total_N, mu, 30, 1e-11) #compare with LBL data
-        #print(f"mu={mu}, total_N={total_N}, min_R={min_R}, delta={delta}, wavelength_A={wavelength_A}, beta={beta}")
-        #print(f"a={a}, ap={ap}, Deff={Deff}, Tp_Deff={Tp_Deff}, Tp_direct={Tp_direct}")        # Gain
+        # Decide which scenario transmission to show
+        overfilled = beam_overfills_aperture(beam_h, beam_v, size_convention, min_R0)
+        if overfilled:
+            Tp_scenario = Tp_Deff
+            scenario_label = "Integrated Transmission (aperture limited)"
+        else:
+            Tp_scenario = effective_transmission(
+                size_convention, total_N, mu, 30, a, min_R, min_R0,
+                beam_h, beam_v
+            )
+            scenario_label = "Integrated Transmission (beam limited)"
 
-        G = calc_gain(Tp_Deff, min_R0, Bh, Bv)
+        G = calc_gain(Tp_scenario, min_R0, Bh, Bv)
 
         # Display
 
         col1, col2 = st.columns(2)
         col1.metric("Focal length", f"{f_total_m:.3f} m")
         col1.metric("Total lenses N", total_N)
-        col2.metric("Peak transmission", f"{Tp_Deff * 100:.1f}%")
+        col1.metric("Transmission at Lens Center", f"{Tp_neck * 100:.1f}%")
         col2.metric("Effective aperture", f"{Deff:.0f} µm")
+        col2.metric(scenario_label, f"{Tp_scenario * 100:.1f}%")
         #col1.metric("Gain", f"{G:.1f}")
     else:
         # Subtle inline note for validation
@@ -504,23 +592,37 @@ with tab1:
 
     a = lens_parameter_a(mu, N_rounded, R_um, delta, wavelength_A)
     ap = aperture_parameter(a, R0_um, R_um)
-    Tp_Deff = effective_aperture_transmission(N_rounded, mu, 30, ap)
+    Tp_Deff = aperture_averaged_transmission(N_rounded, mu, 30, ap)
+    Tp_neck = aperture_averaged_transmission(N_rounded, mu, 30, 0)
     Deff = effective_aperture(R0_um, ap)
+
+    # Decide which scenario transmission to show
+    overfilled = beam_overfills_aperture(beam_h, beam_v, size_convention, R0_um)
+    if overfilled:
+        Tp_scenario = Tp_Deff
+        scenario_label = "Integrated Transmission (aperture limited)"
+    else:
+        Tp_scenario = effective_transmission(
+            size_convention, N_rounded, mu, 30, a, R_um, R0_um,
+            beam_h, beam_v
+        )
+        scenario_label = "Integrated Transmission (beam limited)"
 
     # Image distance and gain
     L1_um = L1 * 1e6
     L2_um = image_distance(f_actual_um, L1_um)
-    Bh = Sh * L2_um / L1_um
-    Bv = Sv * L2_um / L1_um
-    G = calc_gain(Tp_Deff, R0_um, Bh, Bv)
+    Bh = beam_h * L2_um / L1_um
+    Bv = beam_v * L2_um / L1_um
+    G = calc_gain(Tp_scenario, R0_um, Bh, Bv)
 
     st.header("Results")
 
     col1, col2 = st.columns(2)
     col1.metric("Number of lenses (N)", N_rounded)
     col1.metric("Actual focal length", f"{f_actual_m:.3f} m")
-    col2.metric("Peak transmission", f"{Tp_Deff * 100:.1f}%")
+    col1.metric("Transmission at Lens Center", f"{Tp_neck * 100:.1f}%")
     col2.metric("Effective aperture", f"{Deff:.0f} µm")
+    col2.metric(scenario_label, f"{Tp_scenario * 100:.1f}%")
     #col1.metric("Gain", f"{G:.1f}")
 
     # Show deviation from target
@@ -566,7 +668,7 @@ I would like to request a quotation for the following diamond CRL lenses:
 
 Application parameters:
   - Energy: {energy_keV} keV
-  - Source size: {Sh} × {Sv} µm (H × V)
+  - Source size: {beam_h} × {beam_v} µm (H × V)
   - Distance source to lens: {L1} m
 
 Calculated results:
