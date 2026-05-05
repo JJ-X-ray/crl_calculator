@@ -39,39 +39,46 @@ def get_delta_beta(energy_eV, table):
 def wavelength_angstrom(energy_eV):
     return 12398.4 / energy_eV
 
+
 def absorption_coeff(beta, wavelength_A):
     """Linear absorption coefficient µ in 1/µm"""
-    wavelength_um = wavelength_A * 1e-4   # 1 Å = 1e-4 µm
+    wavelength_um = wavelength_A * 1e-4  # 1 Å = 1e-4 µm
     return 4 * np.pi * beta / wavelength_um
+
 
 def focal_length(R_um, N, delta):
     """Focal length in µm"""
     return R_um / (2 * N * delta)
 
+
 def aperture_parameter(a, R0_um, R_um):
     """Standard aperture parameter ap"""
     return a * R0_um ** 2 / (2 * R_um ** 2)
 
+
 def effective_aperture(R0_um, ap):
     """Effective aperture diameter Deff in µm"""
     if ap < 1e-10:
-       return 2 * R0_um
+        return 2 * R0_um
     return 2 * R0_um * np.sqrt((1 - np.exp(-ap)) / ap)
+
 
 def aperture_averaged_transmission(N, mu, d_neck_um, ap):
     """Peak transmission Tp"""
     if ap < 1e-10:
-       return np.exp(-N * mu * d_neck_um)
+        return np.exp(-N * mu * d_neck_um)
     return np.exp(-N * mu * d_neck_um) * (1 / (2 * ap)) * (1 - np.exp(-2 * ap))
+
 
 def gaussian_beam_transmission(N, mu, d_neck_um, a, R_um, sigma_h_um, sigma_v_um):
     """Beam-weighted transmission for an elliptical Gaussian beam.
     sigma_h, sigma_v are the rms (1-sigma) beam sizes in um.
     Exact when the beam is narrow compared to the geometric aperture R0."""
     T_neck = np.exp(-N * mu * d_neck_um)
-    factor_h = 1.0 + 2.0 * a * sigma_h_um ** 2 / R_um **  2
+    factor_h = 1.0 + 2.0 * a * sigma_h_um ** 2 / R_um ** 2
     factor_v = 1.0 + 2.0 * a * sigma_v_um ** 2 / R_um ** 2
     return T_neck / np.sqrt(factor_h * factor_v)
+
 
 def tophat_beam_transmission(N, mu, d_neck_um, a, R_um, H_um, V_um, R0_um):
     """Beam-weighted transmission for a uniform rectangular (slit-cut) beam.
@@ -81,11 +88,14 @@ def tophat_beam_transmission(N, mu, d_neck_um, a, R_um, H_um, V_um, R0_um):
     V_eff = min(V_um, 2.0 * R0_um)
     u_h = H_eff * np.sqrt(a) / (2.0 * R_um)
     u_v = V_eff * np.sqrt(a) / (2.0 * R_um)
+
     def _F(u):
         if u < 1e-6:
-            return 1.0 - u ** 2 / 3.0   # Taylor expansion for small u
+            return 1.0 - u ** 2 / 3.0  # Taylor expansion for small u
         return (np.sqrt(np.pi) / (2.0 * u)) * erf(u)
+
     return T_neck * _F(u_h) * _F(u_v)
+
 
 def calc_2R0_optical(R_um, W_um=1000, d_neck_um=30):
     """Optical aperture 2×R₀ from geometry"""
@@ -117,6 +127,7 @@ def lens_parameter_a(mu, N, R_um, delta, wavelength_A, sigma_um=0.1):
     scatter_term = 2 * N * (2 * np.pi * delta / wavelength_um) ** 2 * sigma_um ** 2
     return mu * N * R_um + scatter_term
 
+
 def to_sigma(size_um, convention):
     """Convert a user-supplied 'beam size' to the Gaussian rms sigma."""
     if convention == "FWHM":
@@ -128,6 +139,7 @@ def to_sigma(size_um, convention):
     if convention == "1/e² full width":
         return size_um / 4.0
     raise ValueError(f"Not a Gaussian convention: {convention}")
+
 
 def effective_transmission(convention, N, mu, d_neck_um, a, R_um, R0_um,
                            beam_h_um, beam_v_um):
@@ -158,6 +170,14 @@ def beam_overfills_aperture(beam_h_um, beam_v_um, convention, R0_um):
     fwhm_v = 2.3548 * sigma_v
     return fwhm_h >= aperture and fwhm_v >= aperture
 
+
+def sidebar_divider(thickness=1):
+    st.sidebar.markdown(
+        f'<hr style="border:none; border-top:{thickness}px solid rgba(7,78,110,1); margin:0.75rem 0;">',
+        unsafe_allow_html=True
+    )
+
+
 # =========================================================================================================
 # STREAMLIT UI
 # =========================================================================================================
@@ -186,18 +206,14 @@ st.markdown("""
 
     /* Main title color */
     h1 {
-        color: #9B0052 !important;
+        color: #7a0041 !important;
     }
 
     /* Sidebar background */
     [data-testid="stSidebar"] {
-        background-color: #074E6E;
+        background-color: #FFFFFF;
     }
 
-    /* Main area - clean white background */
-    [data-testid="stMain"] {
-        background: linear-gradient(180deg, #FFFFFF 0%, #F5F3F2 100%);
-    }
 
     /* Keep taupe for Results section cards */
     [data-testid="stMetric"] {
@@ -212,8 +228,8 @@ st.markdown("""
         border-color: #9B0052;
     }
     .stButton > button[kind="primary"]:hover {
-        background-color: #7a0041;
-        border-color: #7a0041;
+        background-color: #9B0052;
+        border-color: #9B0052;
     }
 
 
@@ -229,7 +245,7 @@ st.markdown("""
 
     /* Even more aggressive - target all text inside slider */
     .stSlider * {
-        color: #FFFFFF !important;
+        color: #074E6E !important;
     }
 
     /* Number inputs in main area - white bg, black text */
@@ -263,20 +279,21 @@ st.markdown("""
     }
 
     /* Main area - dark text for light background */
-    [data-testid="stMain"] h1,
-    [data-testid="stMain"] h2,
-    [data-testid="stMain"] h3,
+
     [data-testid="stMain"] .stMarkdown,
     [data-testid="stMain"] .stText,
     [data-testid="stMain"] label,
     [data-testid="stMain"] [data-testid="stMetricValue"],
     [data-testid="stMain"] [data-testid="stMetricLabel"] {
-        color: #074E6E !important;
+        color: #6F6764 !important;
     }
 
     /* Keep main title magenta */
-    [data-testid="stMain"] h1 {
-        color: #9B0052 !important;
+    [data-testid="stMain"] h1,
+    [data-testid="stMain"] h2,
+    [data-testid="stMain"] h3,
+    [data-testid="stMain"] label{
+        color: #074E6E !important;
     }
 
     /* Sidebar - white text */
@@ -285,8 +302,10 @@ st.markdown("""
     [data-testid="stSidebar"] h3,
     [data-testid="stSidebar"] .stMarkdown,
     [data-testid="stSidebar"] .stText,
+    [data-testid="stSidebar"] span,
+    [data-testid="stSidebar"] div,
     [data-testid="stSidebar"] label {
-        color: #FFFFFF !important;
+        color: #074E6E !important;
     }
 
     /* Tab text - navy blue */
@@ -313,19 +332,46 @@ st.markdown("""
     [data-testid="stSidebar"] .stButton > button:hover {
         background-color: #3d4570 !important;
         border-color: #3d4570 !important;
+        color: #FFFFFF !important;
     }
 
     /* Keep primary button magenta */
     [data-testid="stSidebar"] .stButton > button[kind="primary"] {
         background-color: #9B0052 !important;
         border-color: #9B0052 !important;
+        color: #FFFFFF !important;
     }
 
     [data-testid="stSidebar"] .stButton > button[kind="primary"]:hover {
-        background-color: #7a0041 !important;
-        border-color: #7a0041 !important;
+        background-color: #9B0052 !important;
+        border-color: #9B0052 !important;
+        color: #FFFFFF !important;
     }
 
+    /* Sidebar selectbox selected value */
+    [data-testid="stSidebar"] [data-baseweb="select"] [data-testid="stMarkdownContainer"],
+    [data-testid="stSidebar"] [data-baseweb="select"] [data-testid="stMarkdownContainer"] p,
+    [data-testid="stSidebar"] [data-baseweb="select"] input {
+        color: #6F6764 !important;
+    }
+
+    /* Force selectbox text color - targets all possible inner elements */
+    [data-testid="stSidebar"] [data-baseweb="select"] * {
+        color: #6F6764 !important;
+    }
+
+    /* Keep the dropdown arrow white on dark sidebar */
+    [data-testid="stSidebar"] [data-baseweb="select"] svg {
+        fill: #6F6764 !important;
+    }
+
+    /* Force white text on ALL elements inside sidebar primary button */
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] *,
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] p,
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] span,
+    [data-testid="stSidebar"] .stButton > button[kind="primary"] div {
+        color: #FFFFFF !important;
+    }
 </style>
 """, unsafe_allow_html=True)
 st.title("Diamond CRL Calculator")
@@ -364,6 +410,8 @@ if new_val2 != st.session_state.energy:
 energy_keV = st.session_state.energy
 energy_eV = energy_keV * 1000
 
+sidebar_divider(2)
+
 # Source size
 st.sidebar.write("**Source size (σ, µm)**")
 col1, col2 = st.sidebar.columns(2)
@@ -386,6 +434,8 @@ size_convention = st.sidebar.selectbox(
 # Distance
 L1 = st.sidebar.number_input("Distance source → lens (m)", 1.0, 200.0, 40.0, 1.0, key="L1")
 
+sidebar_divider(2)
+
 st.sidebar.write("**Source divergence (σ', µrad) — optional**")
 col1, col2 = st.sidebar.columns(2)
 with col1:
@@ -394,17 +444,15 @@ with col2:
     divv = st.number_input("Vertical", 0.0, 500.0, 0.0, 1.0, key="divv")
 
 # When user hasn't entered a beam size, auto-estimate from source + divergence
-sigma_h_from_source = np.sqrt(beam_h**2 + (divh * 1e-6 * L1 * 1e6)**2)  # µm
-sigma_v_from_source = np.sqrt(beam_v**2 + (divv * 1e-6 * L1 * 1e6)**2)
-
-
+sigma_h_from_source = np.sqrt(beam_h ** 2 + (divh * 1e-6 * L1 * 1e6) ** 2)  # µm
+sigma_v_from_source = np.sqrt(beam_v ** 2 + (divv * 1e-6 * L1 * 1e6) ** 2)
 
 # Get optical constants
 delta, beta = get_delta_beta(energy_eV, optical)
 wavelength_A = wavelength_angstrom(energy_eV)
 mu = absorption_coeff(beta, wavelength_A)
 
-st.sidebar.markdown(f"**δ** = {delta:.3e}  \n**β** = {beta:.3e}  \n**µ** = {mu:.4f} /µm")
+st.sidebar.markdown(f"**δ** = {delta:.2e}  \n**β** = {beta:.2e}  \n**µ** = {mu:.2e} /µm")
 
 # =========================================================================================================
 # TABS
@@ -518,7 +566,7 @@ with tab2:
         col1.metric("Transmission at Lens Center", f"{Tp_neck * 100:.1f}%")
         col2.metric("Effective aperture", f"{Deff:.0f} µm")
         col2.metric(scenario_label, f"{Tp_scenario * 100:.1f}%")
-        #col1.metric("Gain", f"{G:.1f}")
+        # col1.metric("Gain", f"{G:.1f}")
     else:
         # Subtle inline note for validation
         st.markdown(
@@ -623,7 +671,7 @@ with tab1:
     col1.metric("Transmission at Lens Center", f"{Tp_neck * 100:.1f}%")
     col2.metric("Effective aperture", f"{Deff:.0f} µm")
     col2.metric(scenario_label, f"{Tp_scenario * 100:.1f}%")
-    #col1.metric("Gain", f"{G:.1f}")
+    # col1.metric("Gain", f"{G:.1f}")
 
     # Show deviation from target
     deviation_pct = abs(f_actual_m - target_f_m) / target_f_m * 100
@@ -633,7 +681,8 @@ with tab1:
 # =========================================================================================================
 # QUOTATION REQUEST
 # =========================================================================================================
-st.sidebar.markdown("---")
+sidebar_divider(2)
+
 st.sidebar.header("Request Quotation")
 
 quote_name = st.sidebar.text_input("Your name", key="quote_name")
